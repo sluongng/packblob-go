@@ -3,108 +3,150 @@ package packblob_test
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/apache/thrift/lib/go/thrift"
 	"github.com/klauspost/compress/zstd"
 	"github.com/sluongng/packblob-go"
+	packblobpb "github.com/sluongng/packblob-go/protobuf"
 	packblobthrift "github.com/sluongng/packblob-go/thrift"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 func TestIndependentEnvelopes(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		input      []byte
-		compressed bool
+	for _, encoding := range []struct {
+		name   string
+		opts   []packblob.Option
+		header uint32
 	}{
-		{name: "empty", input: nil},
-		{name: "small", input: []byte("hello")},
-		{name: "compressible", input: bytes.Repeat([]byte("hello"), 4096), compressed: true},
+		{name: "default protobuf", header: 1},
+		{name: "explicit thrift", opts: []packblob.Option{packblob.WithEncoding(packblob.Thrift)}},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			encoded, err := packblob.EncodeSingle(tc.input, 0)
-			must(t, err)
-			storage := readEnvelope(t, encoded)[1].(fields)
-			single := storage[1].(fields)
-			if len(storage) != 1 || len(single) != 1 {
-				t.Fatal("expected single union variants")
-			}
-			var actual []byte
-			if tc.compressed {
-				actual = decompress(t, single[2].([]byte), nil, false)
-			} else {
-				actual = single[1].([]byte)
-			}
-			if !bytes.Equal(actual, tc.input) {
-				t.Fatal("decoded contents differ")
+		t.Run(encoding.name, func(t *testing.T) {
+			for _, tc := range []struct {
+				name       string
+				input      []byte
+				compressed bool
+			}{
+				{name: "empty", input: nil},
+				{name: "small", input: []byte("hello")},
+				{name: "compressible", input: bytes.Repeat([]byte("hello"), 4096), compressed: true},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					encoded, err := packblob.EncodeSingle(tc.input, 0, encoding.opts...)
+					must(t, err)
+					if binary.BigEndian.Uint32(encoded[:4]) != encoding.header {
+						t.Fatal("EncodeSingle lost selected encoding")
+					}
+					storage := readEnvelope(t, encoded)[1].(fields)
+					single := storage[1].(fields)
+					if len(storage) != 1 || len(single) != 1 {
+						t.Fatal("expected single union variants")
+					}
+					var actual []byte
+					if tc.compressed {
+						actual = decompress(t, single[2].([]byte), nil, false)
+					} else {
+						actual = single[1].([]byte)
+					}
+					if !bytes.Equal(actual, tc.input) {
+						t.Fatal("decoded contents differ")
+					}
+				})
 			}
 		})
 	}
-	// A hand-auditable golden tests framing and the Raw union independently
-	// of the test reader and compression implementation.
-	encoded, err := packblob.EncodeRaw([]byte("hello"))
-	must(t, err)
-	if got, want := hex.EncodeToString(encoded), "000000001c1c180568656c6c6f000000"; got != want {
-		t.Fatalf("raw envelope = %s, want %s", got, want)
+	// Hand-auditable goldens check framing and Raw independently of readers.
+	for _, tc := range []struct {
+		encoding packblob.Encoding
+		want     string
+	}{
+		{packblob.Protobuf, "000000010a090a070a0568656c6c6f"},
+		{packblob.Thrift, "000000001c1c180568656c6c6f000000"},
+	} {
+		encoded, err := packblob.EncodeRaw([]byte("hello"), packblob.WithEncoding(tc.encoding))
+		must(t, err)
+		if got := hex.EncodeToString(encoded); got != tc.want {
+			t.Fatalf("raw envelope encoding %d = %s, want %s", tc.encoding, got, tc.want)
+		}
 	}
 }
 
 func TestPack(t *testing.T) {
-	var builder packblob.Builder // zero value uses default compression
-	inputs := make(map[string][]byte)
-	for i := range 20 {
-		key := fmt.Sprint(i)
-		data := bytes.Repeat([]byte(fmt.Sprintf("revision %d\n", i)), 1024)
-		inputs[key] = data
-		if i == 0 {
-			must(t, builder.AddBase(key, data))
-		} else {
-			must(t, builder.AddDelta(fmt.Sprint(i-1), key, data))
-		}
-	}
-	blob, err := builder.Build("")
-	must(t, err)
-	// This is the key asserted by Mononoke's pack_zstd_from_dict_unchained_test
-	// for logical keys "0" through "19", independent of contents and ordering.
-	const wantKey = "49df56ffd39791720f4d4b5c05d3156dfeab994fcb6b0000b3c2343280b95975.pack"
-	if blob.Key != wantKey || !slices.IsSorted(blob.LinkKeys) || len(blob.LinkKeys) != 20 {
-		t.Fatalf("unexpected pack identity or links: %q, %v", blob.Key, blob.LinkKeys)
-	}
-	storage := readEnvelope(t, blob.Data)[1].(fields)
-	pack := storage[2].(fields)
-	if string(pack[1].([]byte)) != blob.Key {
-		t.Fatal("embedded pack key differs")
-	}
-	entries := pack[2].([]fields)
-	if len(entries) != len(inputs) {
-		t.Fatalf("entry count = %d", len(entries))
-	}
-	decoded := make(map[string][]byte)
-	for i, entry := range entries {
-		key := string(entry[1].([]byte))
-		if key != fmt.Sprint(i) {
-			t.Fatalf("entry %d key = %q; insertion order lost", i, key)
-		}
-		value := entry[2].(fields)
-		var actual []byte
-		if i == 0 {
-			actual = decompress(t, value[1].(fields)[2].([]byte), nil, false)
-		} else {
-			delta := value[2].(fields)
-			dictKey := string(delta[1].([]byte))
-			if dictKey != fmt.Sprint(i-1) {
-				t.Fatalf("wrong dictionary for %q: %q", key, dictKey)
+	for _, encoding := range []struct {
+		name   string
+		value  packblob.Encoding
+		suffix string
+	}{
+		{"protobuf", packblob.Protobuf, packblob.EnvelopeSuffix},
+		{"thrift", packblob.Thrift, packblob.ThriftEnvelopeSuffix},
+	} {
+		t.Run(encoding.name, func(t *testing.T) {
+			builder, err := packblob.NewBuilder(0, packblob.WithEncoding(encoding.value))
+			must(t, err)
+			inputs := make(map[string][]byte)
+			for i := range 20 {
+				key := fmt.Sprint(i)
+				data := bytes.Repeat([]byte(fmt.Sprintf("revision %d\n", i)), 1024)
+				inputs[key] = data
+				if i == 0 {
+					must(t, builder.AddBase(key, data))
+				} else {
+					must(t, builder.AddDelta(fmt.Sprint(i-1), key, data))
+				}
 			}
-			actual = decompress(t, delta[2].([]byte), decoded[dictKey], true)
-		}
-		if !bytes.Equal(actual, inputs[key]) {
-			t.Fatalf("decoded contents differ for %q", key)
-		}
-		decoded[key] = actual
+			blob, err := builder.Build("")
+			must(t, err)
+			// This is the key asserted by Mononoke's pack_zstd_from_dict_unchained_test
+			// for logical keys "0" through "19", independent of contents and ordering.
+			wantKey := "49df56ffd39791720f4d4b5c05d3156dfeab994fcb6b0000b3c2343280b95975" + encoding.suffix
+			if blob.Encoding != encoding.value {
+				t.Fatalf("Blob.Encoding = %d, want %d", blob.Encoding, encoding.value)
+			}
+			if blob.Key != wantKey || !slices.IsSorted(blob.LinkKeys) || len(blob.LinkKeys) != 20 {
+				t.Fatalf("unexpected pack identity or links: %q, %v", blob.Key, blob.LinkKeys)
+			}
+			storage := readEnvelope(t, blob.Data)[1].(fields)
+			pack := storage[2].(fields)
+			if string(pack[1].([]byte)) != blob.Key {
+				t.Fatal("embedded pack key differs")
+			}
+			entries := pack[2].([]fields)
+			if len(entries) != len(inputs) {
+				t.Fatalf("entry count = %d", len(entries))
+			}
+			decoded := make(map[string][]byte)
+			for i, entry := range entries {
+				key := string(entry[1].([]byte))
+				if key != fmt.Sprint(i) {
+					t.Fatalf("entry %d key = %q; insertion order lost", i, key)
+				}
+				value := entry[2].(fields)
+				var actual []byte
+				if i == 0 {
+					actual = decompress(t, value[1].(fields)[2].([]byte), nil, false)
+				} else {
+					delta := value[2].(fields)
+					dictKey := string(delta[1].([]byte))
+					if dictKey != fmt.Sprint(i-1) {
+						t.Fatalf("wrong dictionary for %q: %q", key, dictKey)
+					}
+					actual = decompress(t, delta[2].([]byte), decoded[dictKey], true)
+				}
+				if !bytes.Equal(actual, inputs[key]) {
+					t.Fatalf("decoded contents differ for %q", key)
+				}
+				decoded[key] = actual
+			}
+
+		})
 	}
 }
 
@@ -240,12 +282,22 @@ func TestThriftRejectsInvalidUTF8Keys(t *testing.T) {
 	}
 }
 
-// Decode the wire using Apache Thrift, not the package's schema encoder.
+// Decode envelopes with Apache Thrift or the generated protobuf schema.
 type fields map[int16]any
 
 func readEnvelope(t *testing.T, data []byte) fields {
 	t.Helper()
-	if len(data) < 4 || !bytes.Equal(data[:4], []byte{0, 0, 0, 0}) {
+	if len(data) < 4 {
+		t.Fatal("missing envelope header")
+	}
+	switch binary.BigEndian.Uint32(data[:4]) {
+	case 1:
+		var envelope packblobpb.StorageEnvelope
+		must(t, proto.Unmarshal(data[4:], &envelope))
+		return protobufFields(t, envelope.ProtoReflect())
+	case 0:
+		// The legacy encoding remains independently decoded by Apache Thrift.
+	default:
 		t.Fatal("invalid envelope header")
 	}
 	transport := thrift.NewTMemoryBuffer()
@@ -255,6 +307,39 @@ func readEnvelope(t *testing.T, data []byte) fields {
 	if transport.Len() != 0 {
 		t.Fatalf("trailing Thrift bytes: %d", transport.Len())
 	}
+	return result
+}
+
+// Traverse generated descriptors instead of duplicating each schema's fields.
+func protobufFields(t *testing.T, message protoreflect.Message) fields {
+	t.Helper()
+	if len(message.GetUnknown()) != 0 {
+		t.Fatal("unknown protobuf fields")
+	}
+	result := make(fields)
+	message.Range(func(field protoreflect.FieldDescriptor, value protoreflect.Value) bool {
+		id := int16(field.Number())
+		if field.IsList() {
+			list := value.List()
+			entries := make([]fields, list.Len())
+			for i := range entries {
+				entries[i] = protobufFields(t, list.Get(i).Message())
+			}
+			result[id] = entries
+		} else {
+			switch field.Kind() {
+			case protoreflect.MessageKind:
+				result[id] = protobufFields(t, value.Message())
+			case protoreflect.StringKind:
+				result[id] = []byte(value.String())
+			case protoreflect.BytesKind:
+				result[id] = value.Bytes()
+			default:
+				t.Fatalf("unexpected protobuf kind %s", field.Kind())
+			}
+		}
+		return true
+	})
 	return result
 }
 
@@ -319,4 +404,104 @@ func must(t *testing.T, err error) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestEncodingOptions(t *testing.T) {
+	raw, err := packblob.EncodeRaw(nil)
+	must(t, err)
+	if binary.BigEndian.Uint32(raw[:4]) != 1 {
+		t.Fatal("EncodeRaw must default to protobuf")
+	}
+	single := readEnvelope(t, raw)[1].(fields)[1].(fields)
+	if _, selected := single[1]; len(single) != 1 || !selected {
+		t.Fatal("empty raw oneof was not selected")
+	}
+	invalid := packblob.WithEncoding(packblob.Encoding(255))
+	if _, err := packblob.NewBuilder(0, invalid); !errors.Is(err, packblob.ErrInvalidEncoding) {
+		t.Fatalf("NewBuilder error = %v, want ErrInvalidEncoding", err)
+	}
+	if _, err := packblob.EncodeRaw(nil, invalid); !errors.Is(err, packblob.ErrInvalidEncoding) {
+		t.Fatalf("EncodeRaw error = %v, want ErrInvalidEncoding", err)
+	}
+	for _, data := range [][]byte{nil, []byte("tiny"), bytes.Repeat([]byte("compressible"), 100)} {
+		if _, err := packblob.EncodeSingle(data, 0, invalid); !errors.Is(err, packblob.ErrInvalidEncoding) {
+			t.Fatalf("EncodeSingle error = %v, want ErrInvalidEncoding", err)
+		}
+	}
+}
+
+func TestEncodingIdentityAndEmptyKeys(t *testing.T) {
+	var protobufBuilder packblob.Builder // The zero value selects protobuf.
+	thriftBuilder, err := packblob.NewBuilder(0, packblob.WithEncoding(packblob.Thrift))
+	must(t, err)
+	var identities []string
+	for _, tc := range []struct {
+		name     string
+		builder  *packblob.Builder
+		encoding packblob.Encoding
+		header   uint32
+		suffix   string
+	}{
+		{"zero builder protobuf", &protobufBuilder, packblob.Protobuf, 1, ".pack.pb"},
+		{"explicit thrift", thriftBuilder, packblob.Thrift, 0, ".pack"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			must(t, tc.builder.AddBase("", nil))
+			must(t, tc.builder.AddDelta("", "child", []byte("child value")))
+			blob, err := tc.builder.Build("packs/")
+			must(t, err)
+			if blob.Encoding != tc.encoding || binary.BigEndian.Uint32(blob.Data[:4]) != tc.header {
+				t.Fatalf("encoding metadata/header mismatch: %d, %x", blob.Encoding, blob.Data[:4])
+			}
+			if !strings.HasSuffix(blob.Key, tc.suffix) {
+				t.Fatalf("key %q lacks suffix %q", blob.Key, tc.suffix)
+			}
+			identities = append(identities, strings.TrimSuffix(blob.Key, tc.suffix))
+			if !slices.Equal(blob.LinkKeys, []string{"", "child"}) {
+				t.Fatalf("link keys = %q", blob.LinkKeys)
+			}
+			pack := readEnvelope(t, blob.Data)[1].(fields)[2].(fields)
+			entries := pack[2].([]fields)
+			if len(entries) != 2 || string(entries[0][1].([]byte)) != "" || string(entries[1][1].([]byte)) != "child" {
+				t.Fatal("empty key or insertion order lost")
+			}
+			base := decompress(t, entries[0][2].(fields)[1].(fields)[2].([]byte), nil, false)
+			delta := entries[1][2].(fields)[2].(fields)
+			if len(base) != 0 || string(delta[1].([]byte)) != "" {
+				t.Fatal("empty base contents or dictionary key changed")
+			}
+			if actual := decompress(t, delta[2].([]byte), base, true); string(actual) != "child value" {
+				t.Fatalf("delta contents = %q", actual)
+			}
+		})
+	}
+	if len(identities) != 2 || identities[0] != identities[1] {
+		t.Fatalf("encoding changed logical-key digest: %q", identities)
+	}
+	t.Run("logical aliases stay disjoint across encodings", func(t *testing.T) {
+		// These logical keys collided when protobuf used the .pb.pack suffix.
+		// Use returned link keys to model the underlying blobstore aliases.
+		var aliases []string
+		for _, tc := range []struct {
+			encoding packblob.Encoding
+			key      string
+			suffix   string
+		}{
+			{packblob.Protobuf, "content.base", packblob.EnvelopeSuffix},
+			{packblob.Thrift, "content.base.pb", packblob.ThriftEnvelopeSuffix},
+		} {
+			builder, err := packblob.NewBuilder(0, packblob.WithEncoding(tc.encoding))
+			must(t, err)
+			must(t, builder.AddBase(tc.key, []byte("contents")))
+			blob, err := builder.Build("")
+			must(t, err)
+			if len(blob.LinkKeys) != 1 || blob.LinkKeys[0] != tc.key {
+				t.Fatalf("unexpected logical link keys: %q", blob.LinkKeys)
+			}
+			aliases = append(aliases, blob.LinkKeys[0]+tc.suffix)
+		}
+		if aliases[0] == aliases[1] {
+			t.Fatalf("protobuf and Thrift logical aliases collide at %q", aliases[0])
+		}
+	})
 }

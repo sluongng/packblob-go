@@ -1,8 +1,9 @@
 # packblob-go
 
-`packblob` is a pure-Go writer for Mononoke's packblob storage format.
+`packblob` is a pure-Go writer for dictionary-compressed blob packs, with protobuf and Mononoke-compatible Thrift encodings.
 It combines related blobs into an ordered pack, using earlier blobs as Zstandard dictionaries.
 It returns the encoded bytes and storage keys without accessing a blobstore.
+**Protobuf is the default.** Select Thrift explicitly when writing for Mononoke's existing reader.
 
 Requires Go 1.26 or later.
 The library does not require CGo or a system Zstandard installation.
@@ -29,7 +30,7 @@ func PackRevisions(base, next []byte) (*packblob.Blob, error) {
 }
 ```
 
-The zero value of `Builder` also uses default compression.
+The zero value of `Builder` also uses protobuf and default compression.
 `AddBase` always emits a standalone Zstandard frame, even for empty data.
 `AddDelta` always emits a dictionary-compressed entry and requires its dictionary key to exist already.
 A delta can itself serve as a dictionary for a later entry.
@@ -37,12 +38,13 @@ Duplicate keys and forward references are rejected without changing the builder.
 
 `Build` returns:
 
-- `Key`: the pack's storage identity, including your prefix and `.pack` suffix.
-- `LinkKeys`: sorted logical entry keys, without repository prefixes or `.pack` suffixes.
+- `Encoding`: the selected wire encoding, `Protobuf` or `Thrift`.
+- `Key`: the pack's storage identity, including your prefix and the encoding-specific suffix.
+- `LinkKeys`: sorted logical entry keys, without repository prefixes or storage suffixes.
 - `Data`: the complete storage envelope, including the four-byte format header.
 
-For Mononoke's underlying storage layout, write `Data` under `Key`, then create a hardlink-like copy for each `<repository-prefix><logical-key>.pack`.
-Mononoke's own writer removes the temporary pack key after those copies succeed.
+Write `Data` under `Key`, then create a hardlink-like copy for each `<repository-prefix><logical-key><suffix>`, using the suffix for the selected encoding.
+With Thrift selected, this matches Mononoke's underlying storage layout; Mononoke's own writer removes the temporary pack key after those copies succeed.
 Storage writes, copy semantics, error recovery, and removal are the caller's responsibility.
 The pack prefix passed to `Build` is independent of the repository prefix applied to links.
 Pass unprefixed keys to `AddBase` and `AddDelta`; recognized `repoNNNN.` and `ephN.repoNNNN.` prefixes are rejected.
@@ -52,17 +54,41 @@ Pass unprefixed keys to `AddBase` and `AddDelta`; recognized `repoNNNN.` and `ep
 Use `EncodeSingle(data, level)` to create a standalone envelope.
 It stores the payload as Zstandard only when compression makes it strictly smaller; otherwise it stores raw bytes.
 Use `EncodeRaw(data)` to force raw storage.
-Store either result at the logical blob key plus `packblob.EnvelopeSuffix` (`.pack`).
+Both functions default to protobuf and accept the same `WithEncoding` option as `NewBuilder`.
+Store either result at the logical blob key plus the selected storage suffix.
+
+## Choose an encoding
+
+```go
+builder, err := packblob.NewBuilder(0, packblob.WithEncoding(packblob.Thrift))
+```
+
+Handle `err`, then add entries and build as usual.
+Pass the same option to `EncodeRaw(data, packblob.WithEncoding(packblob.Thrift))` or `EncodeSingle(data, level, packblob.WithEncoding(packblob.Thrift))` for independent Thrift envelopes.
+Omit the option, or pass `WithEncoding(packblob.Protobuf)`, for protobuf.
+
+| Encoding | Four-byte big-endian header | Storage suffix | Reader |
+| --- | --- | --- | --- |
+| Protobuf (default) | `1` | `.pack.pb` (`EnvelopeSuffix`) | Protobuf `StorageEnvelope` after the header |
+| Thrift | `0` | `.pack` (`ThriftEnvelopeSuffix`) | Mononoke's existing packblob reader |
+
+The protobuf header is a library extension, not an upstream Mononoke format.
+For example, after checking the header, a protobuf reader can pass `blob.Data[4:]` to `proto.Unmarshal` with `protobuf.StorageEnvelope`.
+The suffix applies to both the pack's storage key and its logical links, keeping protobuf and Thrift values in separate namespaces.
+
+**Migration from the original Thrift-only API:** calls without an option now emit protobuf, and `EnvelopeSuffix` now means `.pack.pb`.
+Add `WithEncoding(packblob.Thrift)` and use `ThriftEnvelopeSuffix` for existing Mononoke storage.
+Explicit Thrift output retains its original header, key digest, and `.pack` suffix.
 
 ## Compatibility and limits
 
-The format follows the upstream [Thrift schema](https://github.com/facebook/sapling/blob/f787ffaceddd5a350212542fbe676702360f694a/eden/mononoke/blobstore/packblob/if/packblob.thrift), [envelope framing](https://github.com/facebook/sapling/blob/f787ffaceddd5a350212542fbe676702360f694a/eden/mononoke/blobstore/packblob/src/envelope.rs), and [pack writer](https://github.com/facebook/sapling/blob/f787ffaceddd5a350212542fbe676702360f694a/eden/mononoke/blobstore/packblob/src/pack.rs).
+The Thrift encoding follows the upstream [schema](https://github.com/facebook/sapling/blob/f787ffaceddd5a350212542fbe676702360f694a/eden/mononoke/blobstore/packblob/if/packblob.thrift), [envelope framing](https://github.com/facebook/sapling/blob/f787ffaceddd5a350212542fbe676702360f694a/eden/mononoke/blobstore/packblob/src/envelope.rs), and [pack writer](https://github.com/facebook/sapling/blob/f787ffaceddd5a350212542fbe676702360f694a/eden/mononoke/blobstore/packblob/src/pack.rs).
 
-- Envelopes contain a four-byte big-endian zero followed by a Thrift Compact Protocol `StorageEnvelope`.
+- Envelopes contain a four-byte encoding header followed by the selected encoding's `StorageEnvelope`.
 - Pack identities use keyed BLAKE2b-256 with key `pack`, hashing sorted logical keys as an eight-byte little-endian UTF-8 byte length followed by the key bytes.
   This matches 64-bit Mononoke, whose Rust implementation encodes a native `usize` length.
 - **Keys must identify immutable contents.** Pack identity depends only on the logical keys, not the payloads, entry order, or compression settings.
-  Reusing a key for different contents can collide with an existing pack identity.
+  Reusing a key for different contents can collide with an existing pack identity within the same encoding.
 - Compression level `0` means the default, `3`.
   Other levels from `-131072` through `22` map to the pure-Go encoder's nearest preset.
   The output is decodable by libzstd but is not expected to match libzstd byte for byte or achieve the same compression ratio.
@@ -75,7 +101,8 @@ The format follows the upstream [Thrift schema](https://github.com/facebook/sapl
   `AddDelta` returns `ErrInvalidDictionary` because Mononoke's decoder would interpret those bytes as a formatted dictionary.
   The blob can still be stored as a base or standalone value.
 - Keys and prefixes must be valid UTF-8.
-  Individual strings, payloads, and entry counts are limited by Thrift's signed 32-bit lengths.
+  Both encodings limit individual strings, payloads, and entry counts to signed 32-bit lengths.
+  The complete protobuf body must also fit within that limit.
 - This package creates envelopes only; it does not implement reading, automatic dictionary selection, blobstore access, or a command-line tool.
 
 ## Schema packages
@@ -92,7 +119,7 @@ The module is `github.com/sluongng/packblob-go`; its root Go package is `packblo
 
 The protobuf schema represents the same data model, not the same wire format.
 Mononoke's current reader does not accept protobuf messages as header-0 envelopes.
-The root builder continues to use Thrift; no protobuf storage header is assigned here.
+The root builder selects and frames either encoding; protobuf uses its distinct library-defined header of `1`.
 
 To regenerate the protobuf Go messages, install `protoc` 32.0 or later for Edition 2024 support and run:
 
@@ -111,7 +138,7 @@ go test -race ./...
 go vet ./...
 ```
 
-The Go tests decode envelopes with Apache Thrift, check the pack hash against an upstream test vector, and verify compression, dictionary chains, errors, and buffer ownership.
+The Go tests decode protobuf envelopes with the generated messages and Thrift envelopes with Apache Thrift, check the pack hash against an upstream test vector, and verify compression, dictionary chains, errors, and buffer ownership.
 
 An optional independent check uses Python Apache Thrift and the system `libzstd` to decode Go-generated output, including raw dictionary references at multiple compression levels:
 

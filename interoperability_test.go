@@ -51,9 +51,9 @@ func TestInteroperability(t *testing.T) {
 		var data []byte
 		var err error
 		if tc.raw {
-			data, err = EncodeRaw(tc.data)
+			data, err = EncodeRaw(tc.data, WithEncoding(Thrift))
 		} else {
-			data, err = EncodeSingle(tc.data, 3)
+			data, err = EncodeSingle(tc.data, 3, WithEncoding(Thrift))
 		}
 		if err != nil {
 			t.Fatalf("%s: encode: %v", tc.name, err)
@@ -62,7 +62,7 @@ func TestInteroperability(t *testing.T) {
 			Entries: []entry{{Data: tc.data, Variant: tc.variant}}})
 	}
 
-	builder, err := NewBuilder(3)
+	builder, err := NewBuilder(3, WithEncoding(Thrift))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestInteroperability(t *testing.T) {
 	}
 	for _, level := range []int{-1, 0, 3, 7, 19, 22} {
 		name := fmt.Sprintf("high-entropy raw dictionary level %d", level)
-		builder, err := NewBuilder(level)
+		builder, err := NewBuilder(level, WithEncoding(Thrift))
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
@@ -147,7 +147,7 @@ func TestInteroperability(t *testing.T) {
 		name := fmt.Sprintf("dictionary format magic with %d bytes", size)
 		dictionary := make([]byte, size)
 		copy(dictionary, []byte{0x37, 0xa4, 0x30, 0xec})
-		builder, err := NewBuilder(3)
+		builder, err := NewBuilder(3, WithEncoding(Thrift))
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}

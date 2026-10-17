@@ -6,9 +6,9 @@
 // to distinguish missing fields from explicitly supplied empty values.
 //
 // These messages are not compatible with Mononoke's header-0 Thrift compact
-// envelopes. This package does not define a protobuf envelope header or change
-// the wire format emitted by the root packblob package. Applications that use
-// these messages must define their own transport or storage framing.
+// envelopes. The root packblob package frames protobuf messages with a separate
+// four-byte big-endian header of 1. Direct proto.Marshal calls on these messages
+// produce only the protobuf body, without that storage header.
 package protobuf
 
 //go:generate sh generate.sh
