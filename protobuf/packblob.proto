@@ -1,0 +1,55 @@
+// Copyright 2026 The packblob-go Authors.
+// SPDX-License-Identifier: MIT
+
+edition = "2024";
+
+package packblob.v1;
+
+option go_package = "github.com/sluongng/packblob-go/protobuf;protobuf";
+
+// Independent single data value. A selected empty raw value is distinct from an
+// unset value.
+message SingleValue {
+  oneof value {
+    bytes raw = 1;
+    bytes zstd = 2;
+  }
+}
+
+// Dictionary-compressed Zstandard data. The dictionary key must be decodable
+// without this value. If the dictionary is in the same pack, it must precede
+// this value in the entries list.
+message ZstdFromDictValue {
+  string dict_key = 1;
+  bytes zstd = 2;
+}
+
+message PackedValue {
+  oneof value {
+    SingleValue single = 1;
+    ZstdFromDictValue zstd_from_dict = 2;
+  }
+}
+
+message PackedEntry {
+  string key = 1;
+  PackedValue data = 2;
+}
+
+message PackedFormat {
+  // Content-addressable storage key, even when accessed through a logical link.
+  string key = 1;
+  // Order matters: dictionaries must precede the values that reference them.
+  repeated PackedEntry entries = 2;
+}
+
+message StorageFormat {
+  oneof value {
+    SingleValue single = 1;
+    PackedFormat packed = 2;
+  }
+}
+
+message StorageEnvelope {
+  StorageFormat storage = 1;
+}
