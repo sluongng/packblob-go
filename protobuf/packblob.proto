@@ -53,3 +53,18 @@ message StorageFormat {
 message StorageEnvelope {
   StorageFormat storage = 1;
 }
+
+// SHA-256 content identity of the reconstructed, uncompressed blob.
+message BlobDigest {
+  string hash = 1;
+  int64 size_bytes = 2;
+}
+
+// A standalone transfer using an externally negotiated base. This is a bare
+// protobuf message, not a StorageEnvelope or a Mononoke storage encoding.
+message StandaloneDelta {
+  BlobDigest base_digest = 1;
+  BlobDigest target_digest = 2;
+  bytes zstd = 3;
+  string digest_function = 4;
+}

@@ -1,4 +1,4 @@
-"""Decode Go-produced envelopes with Apache Thrift and the system libzstd.
+"""Check Go-produced Thrift envelopes and standalone deltas with libzstd.
 
 Run through TestInteroperability with PACKBLOB_INTEROP_PYTHON pointing to a
 Python interpreter with the `thrift` package installed. No generated Go codec
@@ -73,6 +73,12 @@ class Zstd:
             ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
         ]
         self.lib.ZSTD_decompress_usingDict.restype = ctypes.c_size_t
+        self.lib.ZSTD_DCtx_refPrefix.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t]
+        self.lib.ZSTD_DCtx_refPrefix.restype = ctypes.c_size_t
+        self.lib.ZSTD_decompressDCtx.argtypes = [
+            ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
+        ]
+        self.lib.ZSTD_decompressDCtx.restype = ctypes.c_size_t
         self.lib.ZSTD_isError.argtypes = [ctypes.c_size_t]
         self.lib.ZSTD_isError.restype = ctypes.c_uint
         self.lib.ZSTD_getErrorName.argtypes = [ctypes.c_size_t]
@@ -101,6 +107,28 @@ class Zstd:
         finally:
             self.lib.ZSTD_freeDCtx(context)
 
+    def decode_raw_prefix(self, data, expected_size, dictionary=b""):
+        # ZSTD_DCtx_refPrefix treats the prefix as raw content, unlike
+        # ZSTD_decompress_usingDict's magic-based dictionary auto-detection.
+        # The stable advanced API works with ZSTD_decompressDCtx (zstd.h).
+        assert self.lib.ZSTD_getDictID_fromFrame(data, len(data)) == 0
+        frame_size = self.lib.ZSTD_findFrameCompressedSize(data, len(data))
+        self.check(frame_size)
+        assert frame_size == len(data), "trailing compressed-frame data"
+        context = self.lib.ZSTD_createDCtx()
+        assert context, "could not allocate Zstandard decoder"
+        try:
+            # refPrefix borrows the buffer; retain it through decompression.
+            prefix = ctypes.create_string_buffer(dictionary)
+            self.check(self.lib.ZSTD_DCtx_refPrefix(context, prefix, len(dictionary)))
+            output = ctypes.create_string_buffer(max(1, expected_size))
+            size = self.lib.ZSTD_decompressDCtx(context, output, expected_size, data, len(data))
+            self.check(size)
+            assert size == expected_size, "wrong decoded length"
+            return output.raw[:size]
+        finally:
+            self.lib.ZSTD_freeDCtx(context)
+
     def check(self, result):
         assert not self.lib.ZSTD_isError(result), self.lib.ZSTD_getErrorName(result).decode()
 
@@ -113,6 +141,23 @@ def decode_single(zstd, single, expected):
 
 def verify_case(zstd, case):
     encoded = base64.b64decode(case["data"], validate=True)
+    if case["kind"] == "delta":
+        base = base64.b64decode(case["base"], validate=True)
+        target = base64.b64decode(case["target"], validate=True)
+        assert case["digest_function"] == "sha256", "wrong digest function"
+        for label, contents in (("base", base), ("target", target)):
+            digest = case[label + "_digest"]
+            assert digest["hash"] == hashlib.sha256(contents).hexdigest(), f"wrong {label} hash"
+            assert digest["size_bytes"] == len(contents), f"wrong {label} size"
+        assert zstd.decode_raw_prefix(encoded, len(target), base) == target, "standalone delta contents differ"
+        if case["requires_dictionary"]:
+            try:
+                without_dictionary = zstd.decode_raw_prefix(encoded, len(target))
+            except AssertionError:
+                pass
+            else:
+                assert without_dictionary != target, "standalone delta does not use its base"
+        return
     assert encoded[:4] == b"\0\0\0\0", "wrong four-byte format header"
     transport = TMemoryBuffer(encoded[4:])
     envelope = read_struct(TCompactProtocol(transport), ENVELOPE)
@@ -176,7 +221,8 @@ def main():
             verify_case(zstd, case)
         except Exception as error:
             raise AssertionError(f'{case["name"]}: {error}') from error
-    print(f"Apache Thrift/libzstd verified {len(cases)} envelopes")
+    delta_count = sum(case["kind"] == "delta" for case in cases)
+    print(f"Apache Thrift/libzstd verified {len(cases) - delta_count} envelopes and {delta_count} standalone deltas")
 
 
 if __name__ == "__main__":

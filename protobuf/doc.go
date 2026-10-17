@@ -6,9 +6,14 @@
 // to distinguish missing fields from explicitly supplied empty values.
 //
 // These messages are not compatible with Mononoke's header-0 Thrift compact
-// envelopes. The root packblob package frames protobuf messages with a separate
-// four-byte big-endian header of 1. Direct proto.Marshal calls on these messages
-// produce only the protobuf body, without that storage header.
+// envelopes. The root packblob package frames StorageEnvelope messages with a
+// separate four-byte big-endian header of 1. Direct proto.Marshal calls produce
+// only the protobuf body, without that storage header.
+//
+// StandaloneDelta and BlobDigest extend the model for external-base transfers.
+// A StandaloneDelta contains base and target identities and compressed target
+// bytes, but no base contents. It is a bare protobuf message, not a
+// StorageEnvelope, and has no four-byte storage header.
 package protobuf
 
 //go:generate sh generate.sh

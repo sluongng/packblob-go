@@ -917,6 +917,278 @@ func (b0 StorageEnvelope_builder) Build() *StorageEnvelope {
 	return m0
 }
 
+// SHA-256 content identity of the reconstructed, uncompressed blob.
+type BlobDigest struct {
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Hash        *string                `protobuf:"bytes,1,opt,name=hash"`
+	xxx_hidden_SizeBytes   int64                  `protobuf:"varint,2,opt,name=size_bytes,json=sizeBytes"`
+	XXX_raceDetectHookData protoimpl.RaceDetectHookData
+	XXX_presence           [1]uint32
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *BlobDigest) Reset() {
+	*x = BlobDigest{}
+	mi := &file_packblob_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BlobDigest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BlobDigest) ProtoMessage() {}
+
+func (x *BlobDigest) ProtoReflect() protoreflect.Message {
+	mi := &file_packblob_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *BlobDigest) GetHash() string {
+	if x != nil {
+		if x.xxx_hidden_Hash != nil {
+			return *x.xxx_hidden_Hash
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *BlobDigest) GetSizeBytes() int64 {
+	if x != nil {
+		return x.xxx_hidden_SizeBytes
+	}
+	return 0
+}
+
+func (x *BlobDigest) SetHash(v string) {
+	x.xxx_hidden_Hash = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 2)
+}
+
+func (x *BlobDigest) SetSizeBytes(v int64) {
+	x.xxx_hidden_SizeBytes = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 2)
+}
+
+func (x *BlobDigest) HasHash() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 0)
+}
+
+func (x *BlobDigest) HasSizeBytes() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 1)
+}
+
+func (x *BlobDigest) ClearHash() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
+	x.xxx_hidden_Hash = nil
+}
+
+func (x *BlobDigest) ClearSizeBytes() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 1)
+	x.xxx_hidden_SizeBytes = 0
+}
+
+type BlobDigest_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Hash      *string
+	SizeBytes *int64
+}
+
+func (b0 BlobDigest_builder) Build() *BlobDigest {
+	m0 := &BlobDigest{}
+	b, x := &b0, m0
+	_, _ = b, x
+	if b.Hash != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 2)
+		x.xxx_hidden_Hash = b.Hash
+	}
+	if b.SizeBytes != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 2)
+		x.xxx_hidden_SizeBytes = *b.SizeBytes
+	}
+	return m0
+}
+
+// A standalone transfer using an externally negotiated base. This is a bare
+// protobuf message, not a StorageEnvelope or a Mononoke storage encoding.
+type StandaloneDelta struct {
+	state                     protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_BaseDigest     *BlobDigest            `protobuf:"bytes,1,opt,name=base_digest,json=baseDigest"`
+	xxx_hidden_TargetDigest   *BlobDigest            `protobuf:"bytes,2,opt,name=target_digest,json=targetDigest"`
+	xxx_hidden_Zstd           []byte                 `protobuf:"bytes,3,opt,name=zstd"`
+	xxx_hidden_DigestFunction *string                `protobuf:"bytes,4,opt,name=digest_function,json=digestFunction"`
+	XXX_raceDetectHookData    protoimpl.RaceDetectHookData
+	XXX_presence              [1]uint32
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
+}
+
+func (x *StandaloneDelta) Reset() {
+	*x = StandaloneDelta{}
+	mi := &file_packblob_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StandaloneDelta) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StandaloneDelta) ProtoMessage() {}
+
+func (x *StandaloneDelta) ProtoReflect() protoreflect.Message {
+	mi := &file_packblob_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *StandaloneDelta) GetBaseDigest() *BlobDigest {
+	if x != nil {
+		return x.xxx_hidden_BaseDigest
+	}
+	return nil
+}
+
+func (x *StandaloneDelta) GetTargetDigest() *BlobDigest {
+	if x != nil {
+		return x.xxx_hidden_TargetDigest
+	}
+	return nil
+}
+
+func (x *StandaloneDelta) GetZstd() []byte {
+	if x != nil {
+		return x.xxx_hidden_Zstd
+	}
+	return nil
+}
+
+func (x *StandaloneDelta) GetDigestFunction() string {
+	if x != nil {
+		if x.xxx_hidden_DigestFunction != nil {
+			return *x.xxx_hidden_DigestFunction
+		}
+		return ""
+	}
+	return ""
+}
+
+func (x *StandaloneDelta) SetBaseDigest(v *BlobDigest) {
+	x.xxx_hidden_BaseDigest = v
+}
+
+func (x *StandaloneDelta) SetTargetDigest(v *BlobDigest) {
+	x.xxx_hidden_TargetDigest = v
+}
+
+func (x *StandaloneDelta) SetZstd(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.xxx_hidden_Zstd = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 4)
+}
+
+func (x *StandaloneDelta) SetDigestFunction(v string) {
+	x.xxx_hidden_DigestFunction = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 4)
+}
+
+func (x *StandaloneDelta) HasBaseDigest() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_BaseDigest != nil
+}
+
+func (x *StandaloneDelta) HasTargetDigest() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_TargetDigest != nil
+}
+
+func (x *StandaloneDelta) HasZstd() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 2)
+}
+
+func (x *StandaloneDelta) HasDigestFunction() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 3)
+}
+
+func (x *StandaloneDelta) ClearBaseDigest() {
+	x.xxx_hidden_BaseDigest = nil
+}
+
+func (x *StandaloneDelta) ClearTargetDigest() {
+	x.xxx_hidden_TargetDigest = nil
+}
+
+func (x *StandaloneDelta) ClearZstd() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 2)
+	x.xxx_hidden_Zstd = nil
+}
+
+func (x *StandaloneDelta) ClearDigestFunction() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 3)
+	x.xxx_hidden_DigestFunction = nil
+}
+
+type StandaloneDelta_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	BaseDigest     *BlobDigest
+	TargetDigest   *BlobDigest
+	Zstd           []byte
+	DigestFunction *string
+}
+
+func (b0 StandaloneDelta_builder) Build() *StandaloneDelta {
+	m0 := &StandaloneDelta{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_BaseDigest = b.BaseDigest
+	x.xxx_hidden_TargetDigest = b.TargetDigest
+	if b.Zstd != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 4)
+		x.xxx_hidden_Zstd = b.Zstd
+	}
+	if b.DigestFunction != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 4)
+		x.xxx_hidden_DigestFunction = b.DigestFunction
+	}
+	return m0
+}
+
 var File_packblob_proto protoreflect.FileDescriptor
 
 const file_packblob_proto_rawDesc = "" +
@@ -944,9 +1216,20 @@ const file_packblob_proto_rawDesc = "" +
 	"\x06packed\x18\x02 \x01(\v2\x19.packblob.v1.PackedFormatH\x00R\x06packedB\a\n" +
 	"\x05value\"G\n" +
 	"\x0fStorageEnvelope\x124\n" +
-	"\astorage\x18\x01 \x01(\v2\x1a.packblob.v1.StorageFormatR\astorageB3Z1github.com/sluongng/packblob-go/protobuf;protobufb\beditionsp\xe9\a"
+	"\astorage\x18\x01 \x01(\v2\x1a.packblob.v1.StorageFormatR\astorage\"?\n" +
+	"\n" +
+	"BlobDigest\x12\x12\n" +
+	"\x04hash\x18\x01 \x01(\tR\x04hash\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x02 \x01(\x03R\tsizeBytes\"\xc6\x01\n" +
+	"\x0fStandaloneDelta\x128\n" +
+	"\vbase_digest\x18\x01 \x01(\v2\x17.packblob.v1.BlobDigestR\n" +
+	"baseDigest\x12<\n" +
+	"\rtarget_digest\x18\x02 \x01(\v2\x17.packblob.v1.BlobDigestR\ftargetDigest\x12\x12\n" +
+	"\x04zstd\x18\x03 \x01(\fR\x04zstd\x12'\n" +
+	"\x0fdigest_function\x18\x04 \x01(\tR\x0edigestFunctionB3Z1github.com/sluongng/packblob-go/protobuf;protobufb\beditionsp\xe9\a"
 
-var file_packblob_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_packblob_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_packblob_proto_goTypes = []any{
 	(*SingleValue)(nil),       // 0: packblob.v1.SingleValue
 	(*ZstdFromDictValue)(nil), // 1: packblob.v1.ZstdFromDictValue
@@ -955,6 +1238,8 @@ var file_packblob_proto_goTypes = []any{
 	(*PackedFormat)(nil),      // 4: packblob.v1.PackedFormat
 	(*StorageFormat)(nil),     // 5: packblob.v1.StorageFormat
 	(*StorageEnvelope)(nil),   // 6: packblob.v1.StorageEnvelope
+	(*BlobDigest)(nil),        // 7: packblob.v1.BlobDigest
+	(*StandaloneDelta)(nil),   // 8: packblob.v1.StandaloneDelta
 }
 var file_packblob_proto_depIdxs = []int32{
 	0, // 0: packblob.v1.PackedValue.single:type_name -> packblob.v1.SingleValue
@@ -964,11 +1249,13 @@ var file_packblob_proto_depIdxs = []int32{
 	0, // 4: packblob.v1.StorageFormat.single:type_name -> packblob.v1.SingleValue
 	4, // 5: packblob.v1.StorageFormat.packed:type_name -> packblob.v1.PackedFormat
 	5, // 6: packblob.v1.StorageEnvelope.storage:type_name -> packblob.v1.StorageFormat
-	7, // [7:7] is the sub-list for method output_type
-	7, // [7:7] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	7, // 7: packblob.v1.StandaloneDelta.base_digest:type_name -> packblob.v1.BlobDigest
+	7, // 8: packblob.v1.StandaloneDelta.target_digest:type_name -> packblob.v1.BlobDigest
+	9, // [9:9] is the sub-list for method output_type
+	9, // [9:9] is the sub-list for method input_type
+	9, // [9:9] is the sub-list for extension type_name
+	9, // [9:9] is the sub-list for extension extendee
+	0, // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_packblob_proto_init() }
@@ -994,7 +1281,7 @@ func file_packblob_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_packblob_proto_rawDesc), len(file_packblob_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

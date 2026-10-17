@@ -7,6 +7,13 @@
 // keys for the caller to link in an underlying blobstore. This package does not
 // write to a blobstore or implement a pack reader.
 //
+// EncodeDelta and DecodeDelta provide a separate standalone codec for sending
+// only a delta when both hosts already have a negotiated base. Its bare protobuf
+// packet contains SHA-256 base and target identities and a raw-dictionary Zstd
+// frame, never the base contents. DecodeDelta requires an independently known
+// target digest and an output limit, and verifies both base and target contents.
+// Base negotiation, retention, transport, and CAS integration are caller concerns.
+//
 // Protobuf is the default, including for a zero-value Builder. Use
 // WithEncoding(Thrift) with NewBuilder, EncodeSingle, or EncodeRaw when writing
 // for Mononoke's existing reader. Both encodings have a four-byte big-endian

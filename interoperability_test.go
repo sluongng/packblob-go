@@ -26,14 +26,24 @@ func TestInteroperability(t *testing.T) {
 		DictKey            string `json:"dict_key"`
 		RequiresDictionary bool   `json:"requires_dictionary"`
 	}
+	type digestMetadata struct {
+		Hash      string `json:"hash"`
+		SizeBytes int64  `json:"size_bytes"`
+	}
 	type envelope struct {
-		Name     string   `json:"name"`
-		Kind     string   `json:"kind"`
-		Data     []byte   `json:"data"`
-		Prefix   string   `json:"prefix"`
-		Key      string   `json:"key"`
-		LinkKeys []string `json:"link_keys"`
-		Entries  []entry  `json:"entries"`
+		Name               string         `json:"name"`
+		Kind               string         `json:"kind"`
+		Data               []byte         `json:"data"`
+		Prefix             string         `json:"prefix"`
+		Key                string         `json:"key"`
+		LinkKeys           []string       `json:"link_keys"`
+		Entries            []entry        `json:"entries"`
+		Base               []byte         `json:"base"`
+		Target             []byte         `json:"target"`
+		BaseDigest         digestMetadata `json:"base_digest"`
+		TargetDigest       digestMetadata `json:"target_digest"`
+		DigestFunction     string         `json:"digest_function"`
+		RequiresDictionary bool           `json:"requires_dictionary"`
 	}
 	var cases []envelope
 	for _, tc := range []struct {
@@ -173,6 +183,38 @@ func TestInteroperability(t *testing.T) {
 		// either the serialized entries, the pack-key hash, or the link keys.
 		cases = append(cases, envelope{Name: name, Kind: "pack", Data: blob.Data,
 			Prefix: prefix, Key: blob.Key, LinkKeys: blob.LinkKeys, Entries: entries})
+	}
+
+	// Standalone deltas explicitly treat every CAS base as raw bytes, even
+	// when those bytes start with the formatted-dictionary magic.
+	magicBase := bytes.Clone(entropyBase)
+	copy(magicBase, []byte{0x37, 0xa4, 0x30, 0xec})
+	magicTarget := bytes.Clone(magicBase)
+	copy(magicTarget[len(magicTarget)-(1<<10):], entropyDelta[len(entropyDelta)-(1<<10):])
+
+	// A standalone delta transmits only a frame and digest metadata. Base and
+	// target below are independent fixtures supplied only to this test checker.
+	for _, tc := range []struct {
+		name               string
+		base               []byte
+		target             []byte
+		requiresDictionary bool
+	}{
+		{name: "standalone high-entropy delta", base: entropyBase, target: entropyDelta, requiresDictionary: true},
+		{name: "standalone magic-leading raw base", base: magicBase, target: magicTarget, requiresDictionary: true},
+		{name: "standalone delta empty base", base: []byte{}, target: []byte("contents without a base")},
+		{name: "standalone delta empty target", base: []byte("contents before deletion"), target: []byte{}},
+		{name: "standalone delta both empty", base: []byte{}, target: []byte{}},
+	} {
+		delta, err := EncodeDelta(tc.base, tc.target, 3)
+		if err != nil {
+			t.Fatalf("%s: encode delta: %v", tc.name, err)
+		}
+		cases = append(cases, envelope{Name: tc.name, Kind: "delta", Data: delta.Zstd,
+			Base: tc.base, Target: tc.target,
+			BaseDigest:     digestMetadata{Hash: delta.BaseDigest.Hash, SizeBytes: delta.BaseDigest.SizeBytes},
+			TargetDigest:   digestMetadata{Hash: delta.TargetDigest.Hash, SizeBytes: delta.TargetDigest.SizeBytes},
+			DigestFunction: delta.DigestFunction, RequiresDictionary: tc.requiresDictionary})
 	}
 
 	manifest, err := json.Marshal(cases)

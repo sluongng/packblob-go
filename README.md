@@ -1,6 +1,6 @@
 # packblob-go
 
-`packblob` is a pure-Go writer for dictionary-compressed blob packs, with protobuf and Mononoke-compatible Thrift encodings.
+`packblob` is a pure-Go library for dictionary-compressed blob packs and standalone delta transfers, with protobuf and Mononoke-compatible Thrift pack encodings.
 It combines related blobs into an ordered pack, using earlier blobs as Zstandard dictionaries.
 It returns the encoded bytes and storage keys without accessing a blobstore.
 **Protobuf is the default.** Select Thrift explicitly when writing for Mononoke's existing reader.
@@ -57,6 +57,54 @@ Use `EncodeRaw(data)` to force raw storage.
 Both functions default to protobuf and accept the same `WithEncoding` option as `NewBuilder`.
 Store either result at the logical blob key plus the selected storage suffix.
 
+## Transfer only a delta
+
+Use `EncodeDelta` when sender and receiver have already negotiated a shared base.
+Unlike `Builder.AddDelta`, this API does **not** include the base in its output.
+The packet contains SHA-256 base and target digests (hash and uncompressed size), an explicit digest-function identifier, and a raw-dictionary Zstandard frame.
+
+```go
+// Sender: base is already available at the receiver.
+delta, err := packblob.EncodeDelta(base, target, 0)
+if err != nil {
+    return err
+}
+wire, err := delta.MarshalBinary()
+if err != nil {
+    return err
+}
+// Send wire, not base.
+
+// Receiver: expectedTarget comes independently from the upload/download request,
+// not from the received packet. Choose limits appropriate to your service.
+received, err := packblob.UnmarshalDelta(wire, 2<<20)
+if err != nil {
+    return err
+}
+target, err = packblob.DecodeDelta(base, received, expectedTarget, 4<<20)
+if err != nil {
+    return err
+}
+```
+
+`DecodeDelta` verifies the local base, checks the packet against the independently expected target, bounds decompression, and verifies the reconstructed target's hash and size.
+Every error returns nil output.
+Empty bases and targets are supported, as are arbitrary raw base bytes, including dictionary-magic prefixes.
+The initial codec supports **SHA-256 only**; its digests are independent of pack storage keys.
+Packets use the bare protobuf `StandaloneDelta` message, without a storage-envelope header or suffix; `WithEncoding` applies to packs and independent envelopes, not this standalone codec.
+
+This is a building block for a future Bazel Remote Execution API adapter, **not an implemented REAPI extension or Bazel integration**.
+Applications must provide base negotiation, transport, and fallback policy.
+Compare the complete serialized packet against an ordinary raw or Zstandard target transfer before choosing a delta: metadata overhead can outweigh savings for small blobs.
+The one-shot API creates fresh codec contexts; measure CPU and allocations as well as transferred bytes before selecting production thresholds.
+If the base is missing or a delta is not worthwhile, fall back to transferring the full **target**, not uploading the base first.
+Malformed frames or digest mismatches must be rejected.
+
+For CAS uploads, reconstruct and verify the target before publishing it under its canonical digest.
+The target must remain readable through the ordinary CAS interface.
+You can also store a delta separately from its base, but storage that retains delta dependencies must keep the base available and reconstruct transparently on reads.
+This library does not pin bases, track dependency lifetimes, or implement a blobstore.
+
 ## Choose an encoding
 
 ```go
@@ -97,13 +145,15 @@ The Thrift encoding follows the upstream [schema](https://github.com/facebook/sa
   Bound pack sizes in the caller; this is not a streaming API.
 - Builders copy input data, and each `Build` returns independent slices.
   A builder can be extended after building but must not be copied after use or used concurrently.
-- A blob of at least eight bytes starting with Zstandard dictionary magic (`37 a4 30 ec`) cannot be used as a raw dictionary.
+- In a pack, a blob of at least eight bytes starting with Zstandard dictionary magic (`37 a4 30 ec`) cannot be used as a raw dictionary.
   `AddDelta` returns `ErrInvalidDictionary` because Mononoke's decoder would interpret those bytes as a formatted dictionary.
   The blob can still be stored as a base or standalone value.
 - Keys and prefixes must be valid UTF-8.
   Both encodings limit individual strings, payloads, and entry counts to signed 32-bit lengths.
   The complete protobuf body must also fit within that limit.
-- This package creates envelopes only; it does not implement reading, automatic dictionary selection, blobstore access, or a command-line tool.
+- Standalone delta parsing and decoding require caller-supplied encoded and output limits, each at most signed 32-bit size.
+  Decoding additionally limits the Zstandard window to 8 MiB.
+- This package does not implement a pack reader, automatic dictionary selection, base negotiation, blobstore access, or a command-line tool.
 
 ## Schema packages
 
@@ -116,6 +166,7 @@ The module is `github.com/sluongng/packblob-go`; its root Go package is `packblo
   Its `oneof` fields represent the Thrift unions, and its repeated entries preserve dictionary order.
   Edition 2024 provides explicit scalar presence and Go's Opaque API: use setters or generated builders to construct messages, and `Has` methods to distinguish missing keys from explicit empty keys.
   Applications can serialize these messages with `google.golang.org/protobuf/proto`.
+  It also defines `StandaloneDelta` and `BlobDigest` for external-base transfers; these messages are not part of Mononoke's Thrift model.
 
 The protobuf schema represents the same data model, not the same wire format.
 Mononoke's current reader does not accept protobuf messages as header-0 envelopes.
@@ -138,9 +189,9 @@ go test -race ./...
 go vet ./...
 ```
 
-The Go tests decode protobuf envelopes with the generated messages and Thrift envelopes with Apache Thrift, check the pack hash against an upstream test vector, and verify compression, dictionary chains, errors, and buffer ownership.
+The Go tests decode protobuf envelopes with the generated messages and Thrift envelopes with Apache Thrift, check the pack hash against an upstream test vector, and verify compression, dictionary chains, standalone transfers, digest checks, decoding bounds, errors, and buffer ownership.
 
-An optional independent check uses Python Apache Thrift and the system `libzstd` to decode Go-generated output, including raw dictionary references at multiple compression levels:
+An optional independent check uses Python Apache Thrift and the system `libzstd` to decode Go-generated output, including raw dictionary references at multiple compression levels and standalone deltas:
 
 ```sh
 uv venv /tmp/packblob-interop
