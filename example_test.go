@@ -1,10 +1,50 @@
 package packblob_test
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/sluongng/packblob-go"
 )
+
+func ExampleIndexedReader() {
+	base := []byte("first revision\n")
+	target := []byte("second revision\n")
+	// The caller knows which version it wants, independently of file metadata.
+	expectedTarget := packblob.SHA256Digest(target)
+	// Use an *os.File in production; this buffer keeps the example self-contained.
+	var file bytes.Buffer
+	writer, err := packblob.NewIndexedWriter(&file, 0)
+	if err != nil {
+		panic(err)
+	}
+	if _, err := writer.AddBase(base); err != nil {
+		panic(err)
+	}
+	if _, err := writer.AddDelta(base, target); err != nil {
+		panic(err)
+	}
+	if err := writer.Close(); err != nil {
+		panic(err)
+	}
+	reader, err := packblob.OpenIndexed(bytes.NewReader(file.Bytes()), int64(file.Len()), packblob.IndexedLimits{
+		MaxEntries:     100,
+		MaxBlobSize:    1 << 20,
+		MaxEncodedSize: 1 << 20,
+	})
+	if err != nil {
+		panic(err)
+	}
+	version, err := reader.ReadVersion(expectedTarget)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(reader.Len())
+	fmt.Print(string(version))
+	// Output:
+	// 2
+	// second revision
+}
 
 func ExampleBuilder() {
 	var builder packblob.Builder

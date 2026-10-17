@@ -1,14 +1,105 @@
 # packblob-go
 
-`packblob` is a pure-Go library for dictionary-compressed blob packs and standalone delta transfers, with protobuf and Mononoke-compatible Thrift pack encodings.
-It combines related blobs into an ordered pack, using earlier blobs as Zstandard dictionaries.
-It returns the encoded bytes and storage keys without accessing a blobstore.
-**Protobuf is the default.** Select Thrift explicitly when writing for Mononoke's existing reader.
+`packblob` is a pure-Go library for dictionary-compressed blob storage and standalone delta transfers.
+Use an **indexed file** to store many versions and read one without loading the whole file.
+Use the in-memory builder for protobuf or Mononoke-compatible Thrift envelopes.
+**Protobuf is the default envelope encoding.** Select Thrift explicitly when writing for Mononoke's existing reader.
 
 Requires Go 1.26 or later.
 The library does not require CGo or a system Zstandard installation.
 
-## Create a pack
+## Store versions in an indexed file
+
+An indexed file stores independent blobs and deltas together, addressed by SHA-256 hash and uncompressed size.
+Each delta uses an independent blob in that file as its **anchor** (the shared base).
+Delta chains are not allowed, so extracting a version reads its payload and at most one anchor payload.
+
+```go
+// f is a new writable file. The caller owns its lifetime.
+writer, err := packblob.NewIndexedWriter(f, 0)
+if err != nil {
+    return err
+}
+if _, err := writer.AddBase(base); err != nil {
+    return err
+}
+if _, err := writer.AddDelta(base, target); err != nil {
+    return err
+}
+if err := writer.Close(); err != nil { // Writes the final index and footer.
+    return err
+}
+
+// expectedTarget is the desired version's independently known SHA-256 digest.
+reader, err := packblob.OpenIndexed(f, fileSize, packblob.IndexedLimits{
+    MaxEntries:     100_000,
+    MaxBlobSize:    4 << 20,
+    MaxEncodedSize: 4 << 20,
+})
+if err != nil {
+    return err
+}
+version, err := reader.ReadVersion(expectedTarget)
+```
+
+`OpenIndexed` accepts an `io.ReaderAt`, such as `*os.File` or a range-reading backend, and the file's exact size.
+It reads only the header and footer when opening.
+`ReadVersion` binary-searches fixed-size on-disk index records, then reads and decodes only the requested payload and its anchor, if needed.
+It verifies the requested content's hash and size.
+The reader does not load the entire index or file into memory.
+For `ReadVersion`, encoded and decoded size limits apply to both the requested version and its anchor.
+Concurrent reads are supported if the underlying `ReaderAt` supports them; the file contents must remain unchanged.
+
+The writer streams payloads but keeps one metadata record per distinct digest in memory.
+It does not retain raw bases: pass the base bytes again to `AddDelta`, after adding that base with `AddBase`.
+Choose anchors to balance compression savings against the extra anchor read and decode.
+To start a new group of versions, add a new independent anchor; the library does not choose dictionaries automatically.
+Duplicate digests are no-ops and retain their first representation: `AddBase` does not promote an existing delta to an anchor.
+
+`Len` returns the number of distinct digests, and `DigestAt` enumerates them in hash-then-size order, **not revision order**.
+Store version labels and history ordering separately.
+`Lookup` returns a version's `VersionInfo` without reading payloads; `EntryAt` enumerates this metadata in the same digest order.
+`VersionInfo` includes the digest, optional base digest, codec, payload offset, and encoded size.
+Metadata-only APIs check format bounds, not the reader's payload byte limits, so catalogs can describe versions larger than a particular request allows.
+Files are immutable after successful `Close`; append, recovery, retention, and compaction are not implemented.
+`Close` does not sync or close the underlying file.
+The application must finish, sync if needed, and atomically publish the file before readers use it.
+Opening a file validates only its framing and metadata accessed so far, not every record or the global index ordering.
+
+The [indexed file format](INDEXED_FORMAT.md) is library-specific, with fixed-size metadata for random access.
+It is separate from protobuf/Thrift storage envelopes and standalone delta packets; `WithEncoding` does not apply.
+`OpenIndexed` cannot open `Blob.Data` produced by `Builder`, and Mononoke's reader cannot open indexed files.
+
+### Serve a delta from an indexed file
+
+Keep an application-level catalog mapping each digest to its immutable pack identifier.
+The catalog can also persist `VersionInfo` to locate payload ranges and negotiate bases without searching every pack.
+The library does not maintain a cross-pack catalog.
+
+```go
+info, err := reader.Lookup(expectedTarget) // Metadata only.
+if err != nil {
+    return err
+}
+if info.BaseDigest != nil {
+    delta, err := reader.ReadDelta(expectedTarget) // Does not read the base payload.
+    if err != nil {
+        return err
+    }
+    // If the client has *info.BaseDigest, send only delta.MarshalBinary().
+    // Otherwise, also obtain the base with reader.ReadVersion(*info.BaseDigest)
+    // and send base + delta, or send the full target with ReadVersion instead.
+    _ = delta
+}
+```
+
+`ReadDelta` reads the target frame and its metadata, not the base contents, and returns `ErrNotDelta` for an independent version.
+Its byte limits apply to the target only; an already-negotiated client may hold a base larger than the server's reconstruction limit.
+It cannot verify reconstructed target contents without a base; the recipient must call `DecodeDelta` with its independently expected target and output limit.
+The application chooses between delta-only, base-plus-delta, and full-target transfers after comparing availability and complete transfer sizes.
+Payload offsets are meaningful only for the exact immutable pack they came from.
+
+## Create an in-memory pack
 
 ```go
 package example
@@ -153,7 +244,9 @@ The Thrift encoding follows the upstream [schema](https://github.com/facebook/sa
   The complete protobuf body must also fit within that limit.
 - Standalone delta parsing and decoding require caller-supplied encoded and output limits, each at most signed 32-bit size.
   Decoding additionally limits the Zstandard window to 8 MiB.
-- This package does not implement a pack reader, automatic dictionary selection, base negotiation, blobstore access, or a command-line tool.
+- Indexed-file entry, encoded-size, and decoded-size limits are explicit and at most signed 32-bit values.
+- Indexed files have their own reader; the package does not read the protobuf/Thrift pack envelopes created by `Builder`.
+  Automatic dictionary selection, base negotiation, blobstore access, and a command-line tool are not implemented.
 
 ## Schema packages
 
@@ -189,7 +282,7 @@ go test -race ./...
 go vet ./...
 ```
 
-The Go tests decode protobuf envelopes with the generated messages and Thrift envelopes with Apache Thrift, check the pack hash against an upstream test vector, and verify compression, dictionary chains, standalone transfers, digest checks, decoding bounds, errors, and buffer ownership.
+The Go tests decode protobuf envelopes with the generated messages and Thrift envelopes with Apache Thrift, check the pack hash against an upstream test vector, and verify compression, dictionary chains, indexed reads, standalone transfers, digest checks, decoding bounds, errors, and buffer ownership.
 
 An optional independent check uses Python Apache Thrift and the system `libzstd` to decode Go-generated output, including raw dictionary references at multiple compression levels and standalone deltas:
 
