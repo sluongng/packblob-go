@@ -99,9 +99,9 @@ func marshalPack(encoding Encoding, key string, entries []entry) ([]byte, error)
 		} else {
 			value.SetSingle(protobuf.SingleValue_builder{Zstd: entry.zstd}.Build())
 		}
-		values[i] = protobuf.PackedEntry_builder{Key: proto.String(entry.key), Data: value}.Build()
+		values[i] = protobuf.PackedEntry_builder{Key: new(entry.key), Data: value}.Build()
 	}
-	pack := protobuf.PackedFormat_builder{Key: proto.String(key), Entries: values}.Build()
+	pack := protobuf.PackedFormat_builder{Key: new(key), Entries: values}.Build()
 	storage := protobuf.StorageFormat_builder{Packed: pack}.Build()
 	return marshalProtobuf(protobuf.StorageEnvelope_builder{Storage: storage}.Build())
 }

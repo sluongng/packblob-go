@@ -92,7 +92,7 @@ func TestInteroperability(t *testing.T) {
 		{Key: "empty-key-child", Data: []byte("empty key dictionary with a child"), Variant: "delta", DictKey: ""},
 	}
 	// Compact Protocol uses a distinct extended list header at 15 entries.
-	for i := 0; i < 12; i++ {
+	for i := range 12 {
 		entries = append(entries, entry{Key: fmt.Sprintf("revision-%02d", i),
 			Data:    append(bytes.Clone(base), []byte(fmt.Sprintf("revision %d", i))...),
 			Variant: "delta", DictKey: "z-base"})

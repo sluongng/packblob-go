@@ -261,7 +261,7 @@ func revisions(t *testing.T) ([]byte, []byte) {
 }
 
 func digestMessage(digest packblob.Digest) *protobuf.BlobDigest {
-	return protobuf.BlobDigest_builder{Hash: proto.String(digest.Hash), SizeBytes: proto.Int64(digest.SizeBytes)}.Build()
+	return protobuf.BlobDigest_builder{Hash: new(digest.Hash), SizeBytes: new(digest.SizeBytes)}.Build()
 }
 
 func assertMissing(t *testing.T, client *transfer.Client, requested, want []packblob.Digest) {

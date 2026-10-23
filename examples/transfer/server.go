@@ -141,7 +141,7 @@ func parseDigest(message *protobuf.BlobDigest) (packblob.Digest, error) {
 }
 
 func digestMessage(digest packblob.Digest) *protobuf.BlobDigest {
-	return protobuf.BlobDigest_builder{Hash: proto.String(digest.Hash), SizeBytes: proto.Int64(digest.SizeBytes)}.Build()
+	return protobuf.BlobDigest_builder{Hash: new(digest.Hash), SizeBytes: new(digest.SizeBytes)}.Build()
 }
 
 func readMessage(w http.ResponseWriter, r *http.Request, message proto.Message) bool {

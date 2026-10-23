@@ -142,7 +142,7 @@ func (delta *Delta) MarshalBinary() ([]byte, error) {
 		BaseDigest:     digestMessage(delta.BaseDigest),
 		TargetDigest:   digestMessage(delta.TargetDigest),
 		Zstd:           delta.Zstd,
-		DigestFunction: proto.String(delta.DigestFunction),
+		DigestFunction: new(delta.DigestFunction),
 	}.Build()
 	if proto.Size(message) > math.MaxInt32 {
 		return nil, ErrTooLarge
@@ -184,7 +184,7 @@ func UnmarshalDelta(data []byte, maxEncodedSize int64) (*Delta, error) {
 }
 
 func digestMessage(digest Digest) *protobuf.BlobDigest {
-	return protobuf.BlobDigest_builder{Hash: proto.String(digest.Hash), SizeBytes: proto.Int64(digest.SizeBytes)}.Build()
+	return protobuf.BlobDigest_builder{Hash: new(digest.Hash), SizeBytes: new(digest.SizeBytes)}.Build()
 }
 
 func validateDelta(delta *Delta) error {

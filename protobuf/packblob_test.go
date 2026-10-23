@@ -43,14 +43,14 @@ func TestSingleValuePreservesEmptyRaw(t *testing.T) {
 
 func TestEnvelopePreservesOrderedDictionaryReferences(t *testing.T) {
 	base := SingleValue_builder{Raw: []byte("dictionary")}.Build()
-	delta := ZstdFromDictValue_builder{DictKey: proto.String("base"), Zstd: []byte("compressed delta")}.Build()
-	chained := ZstdFromDictValue_builder{DictKey: proto.String("delta"), Zstd: []byte("compressed chained delta")}.Build()
+	delta := ZstdFromDictValue_builder{DictKey: new("base"), Zstd: []byte("compressed delta")}.Build()
+	chained := ZstdFromDictValue_builder{DictKey: new("delta"), Zstd: []byte("compressed chained delta")}.Build()
 	pack := PackedFormat_builder{
-		Key: proto.String("pack-key"),
+		Key: new("pack-key"),
 		Entries: []*PackedEntry{
-			PackedEntry_builder{Key: proto.String("base"), Data: PackedValue_builder{Single: base}.Build()}.Build(),
-			PackedEntry_builder{Key: proto.String("delta"), Data: PackedValue_builder{ZstdFromDict: delta}.Build()}.Build(),
-			PackedEntry_builder{Key: proto.String("chained"), Data: PackedValue_builder{ZstdFromDict: chained}.Build()}.Build(),
+			PackedEntry_builder{Key: new("base"), Data: PackedValue_builder{Single: base}.Build()}.Build(),
+			PackedEntry_builder{Key: new("delta"), Data: PackedValue_builder{ZstdFromDict: delta}.Build()}.Build(),
+			PackedEntry_builder{Key: new("chained"), Data: PackedValue_builder{ZstdFromDict: chained}.Build()}.Build(),
 		},
 	}.Build()
 	want := StorageEnvelope_builder{Storage: StorageFormat_builder{Packed: pack}.Build()}.Build()
@@ -74,7 +74,7 @@ func TestEnvelopePreservesExplicitEmptyKeys(t *testing.T) {
 		wantPresent bool
 	}{
 		{name: "missing keys"},
-		{name: "explicit empty keys", key: proto.String(""), wantPresent: true},
+		{name: "explicit empty keys", key: new(""), wantPresent: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dictionary := ZstdFromDictValue_builder{DictKey: tc.key}.Build()
