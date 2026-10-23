@@ -1,0 +1,31 @@
+edition = "2024";
+
+package packblob.example.transfer;
+
+import "protobuf/packblob.proto";
+
+option go_package = "github.com/sluongng/packblob-go/examples/transfer/protobuf;transferpb";
+
+// POST /findmissing returns the requested digests absent from the server.
+message FindMissingRequest {
+  repeated packblob.v1.BlobDigest digests = 1;
+}
+
+message FindMissingResponse {
+  repeated packblob.v1.BlobDigest missing = 1;
+}
+
+// POST /upload verifies the reconstructed contents before storing them.
+message UploadRequest {
+  // The requested identity is separate from the delta's metadata. In a real
+  // service, authenticate the caller and authorize this requested identity.
+  packblob.v1.BlobDigest target_digest = 1;
+  oneof payload {
+    bytes file = 2;
+    packblob.v1.StandaloneDelta delta = 3;
+  }
+}
+
+message UploadResponse {
+  packblob.v1.BlobDigest target_digest = 1;
+}

@@ -1,0 +1,57 @@
+Field notebook: a small file transfer
+Revision: first
+
+Purpose
+This notebook is a readable sample file for the transfer example. It describes
+an imaginary workshop, its shared tools, and the plan for a quiet afternoon.
+The second revision will keep most of these notes and change only a few facts.
+
+The room
+Morning light reaches the long table through three windows. A shelf beside the
+door holds paper, pencils, measuring tape, and a box of clean cloths. Everyone
+returns borrowed equipment to the shelf before leaving for the day.
+
+The workbench
+The bench has enough space for two people to work without moving each other's
+materials. A blue tray holds small parts. Larger pieces rest on a cork mat so
+they cannot scratch the surface when someone turns a project around.
+
+The garden
+A narrow path leads from the workshop to a sheltered garden. The first bed
+contains herbs, the second contains flowers, and the last is reserved for new
+seedlings. A watering can stands under the tap beside the wooden gate.
+
+The reading corner
+Two chairs face a low bookcase. The books cover local plants, practical repairs,
+simple recipes, and maps of nearby walking routes. A visitor can leave a note
+inside the green folder to suggest a book for the next community collection.
+
+The afternoon plan
+At two o'clock the group will sort the spare parts and label the storage boxes.
+After that, everyone will check the garden tools and repair the loose handle
+on the small rake. The final task is to sweep the floor around the workbench.
+
+The noticeboard
+A paper calendar lists the next three open afternoons. Beside it, a hand-drawn
+map shows the bicycle stands and the sheltered entrance. Visitors should use
+the side door when the main room is being cleaned or rearranged.
+
+The kitchen shelf
+Tea, coffee, and a jar of oat biscuits are available during breaks. Each person
+washes their own cup and leaves it upside down on the drying rack. The kettle
+stays clear of the sink so water cannot splash onto its electrical connection.
+
+The repair log
+Completed repairs go into a dated notebook. Each entry explains the original
+problem, the parts used, and any checks performed before returning the item.
+Unfinished repairs remain on the marked shelf with a short note about next steps.
+
+Closing time
+Before leaving, the last two people check the windows and switch off the lights.
+They make sure the workbench is clear and the garden gate is closed. The room
+should be ready for the next group without anyone needing to move stored work.
+
+Transfer note
+This first revision is the shared base. The server receives its complete bytes
+and verifies their checksum before storing the file. Later revisions can refer
+to that verified base by its SHA-256 hash and uncompressed byte length.

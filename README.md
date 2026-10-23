@@ -8,6 +8,12 @@ Use the in-memory builder for protobuf or Mononoke-compatible Thrift envelopes.
 Requires Go 1.26 or later.
 The library does not require CGo or a system Zstandard installation.
 
+## Run a client/server example
+
+The [protobuf HTTP transfer example](examples/transfer) sends either a full file or a delta against a shared base.
+The client calls `FindMissing` to check whether the server has the base, then sends a delta only when its complete upload request is smaller.
+The example includes runnable client and server commands, full-file fallback, and digest verification before storage.
+
 ## Store versions in an indexed file
 
 An indexed file stores independent blobs and deltas together, addressed by SHA-256 hash and uncompressed size.
